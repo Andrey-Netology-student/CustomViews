@@ -1,5 +1,6 @@
 package ru.netology.statsview.ui
 
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -7,6 +8,7 @@ import android.graphics.PointF
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.View
+import android.view.animation.LinearInterpolator
 import androidx.core.content.withStyledAttributes
 import ru.netology.statsview.R
 import ru.netology.statsview.utils.AndroidUtils
@@ -18,17 +20,16 @@ class StatsView @JvmOverloads constructor(
     attributeSet: AttributeSet? = null, //Набор атрибутов вида
     defStyleAttr: Int = 0, //Стиль по умолчанию
     defStyleRes: Int = 0, //Ресурс стиля по умолчанию
-) : View(
-    context,
-    attributeSet,
-    defStyleAttr,
-    defStyleRes,
-) {
-
-    private var textSize = AndroidUtils.dp(context, 20).toFloat() //Хранит размер текста в пикселях
-    private var lineWidth = AndroidUtils.dp(context, 5) //Хранит ширину линии в пикселях
+) : View(context, attributeSet, defStyleAttr, defStyleRes) {
+    private var radius = 0F
+    private var center = PointF()
+    private var oval = RectF()
+    private var lineWidth = AndroidUtils.dp(context, 5F) //Хранит размер текста в пикселях
+    private var textSize = AndroidUtils.dp(context, 20F).toFloat() //Хранит ширину линии в пикселях
     private var colors = emptyList<Int>() //Хранит список цветов в виде списка целочисленных значений
 
+    private var progress = 0F
+    private var valueAnimator: ValueAnimator? = null
     init { //Инициализатор класса StatsView
         context.withStyledAttributes(attributeSet, R.styleable.StatsView) {
             //Получение значения атрибутов, относящихся к пользовательскому виду StatsView из XML-файла
@@ -44,19 +45,8 @@ class StatsView @JvmOverloads constructor(
             )
         }
     }
-
-    var data: List<Float> = emptyList() //Хранит данные, которые будут отображаться
-        set(value) {
-            field = value
-//При изменении значения data вызывается метод invalidate(), что приводит к перерисовке вида.
-            invalidate()
-        }
-    private var radius = 0F //Хранит радиус для отображения элементов
-    private var center = PointF() //Координаты центра графика
-    private var oval = RectF() //Прямоугольник, внутри которого будет отображаться график.
-    private val paint = Paint(
-        Paint.ANTI_ALIAS_FLAG//Кисть для отображения графика, ANTIALIASFLAG - для сглаживания краёв
-    ).apply {
+    //Paint.ANTIALIASFLAG указывает, что рисуемые фигуры должны иметь сглаженные края.
+    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         strokeWidth = lineWidth.toFloat() //Значение толщины кисти
         style = Paint.Style.STROKE //Для обводки контура фигур
         strokeJoin = Paint.Join.ROUND //Круглое соединение линий
@@ -70,6 +60,14 @@ class StatsView @JvmOverloads constructor(
         style = Paint.Style.FILL //Для заполнения фигур цветом
         textAlign = Paint.Align.CENTER //Выравнивание текста по центру
     }
+
+    var data: List<Float> = emptyList()
+        set(value) { //Вызывается при изменении значения
+            //field является зарезервированным словом для ссылки на саму переменную data.
+            field = value
+            update() //Для обновления данных
+        }
+
         //Метод вызывается при изменении размеров экрана или View.
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
 //Вычисляет радиус фигуры как минимальное значение из ширины и высоты, делённое на 2, за вычетом ширины линии.
@@ -91,7 +89,7 @@ class StatsView @JvmOverloads constructor(
             return //никаких действий
         }
 
-        var startAngle = -90F //Начальный угол для отрисовки фигур
+        var startAngle = -90F + progress * 360 //Начальный угол для отрисовки фигур
         val dataSum = data.sum() //Сохраняет сумму всех значений
         var actualSum = 0F //Текущая сумма долей
         var firstArcColor = 0 //Для хранения цвета первой фигуры
@@ -105,12 +103,12 @@ class StatsView @JvmOverloads constructor(
                 firstArcColor = paint.color
                 firstAngle = angle
             }
-            canvas.drawArc(oval, startAngle, angle, false, paint)
+            canvas.drawArc(oval, startAngle, angle * progress, false, paint)
             startAngle += angle
         }
 
         paint.color = firstArcColor
-        canvas.drawArc(oval, -90F, firstAngle / 4, false, paint)
+        canvas.drawArc(oval, startAngle, firstAngle / 100, false, paint)
         
         canvas.drawText(
             "%.2f%%".format(actualSum * 100),
@@ -118,6 +116,25 @@ class StatsView @JvmOverloads constructor(
             center.y + textPaint.textSize / 4,
             textPaint
         )
+    }
+
+    private fun update() {
+        valueAnimator?.let {
+            it.removeAllListeners() //Удаляет все слушатели анимации из объекта
+            it.cancel() //Останавливает анимацию
+        }
+        progress = 0F
+        //Данный объект valueAnimator будет анимировать значения от 0 до 1.
+        valueAnimator = ValueAnimator.ofFloat(0F, 1F).apply {
+            addUpdateListener { anim -> //Слушатель обновления анимации
+                progress = anim.animatedValue as Float
+                invalidate() //Для обновления отображения
+            }
+            duration = 3000 //Продолжительность анимации 3000 миллисекунд (3 секунды)
+            interpolator = LinearInterpolator() //Анимация будет выполняться с постоянной скоростью.
+        }.also {
+            it.start() //Запускает анимацию
+        }
     }
 
     private fun generateRandomColor() = Random.nextInt(0xFF000000.toInt(), 0xFFFFFFFF.toInt())
